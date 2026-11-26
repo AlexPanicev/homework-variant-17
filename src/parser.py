@@ -83,7 +83,11 @@ def character_error(source: str, error: UnexpectedCharacters) -> ConfigError:
         message = "многострочный комментарий должен заканчиваться на %}"
     else:
         parser = error.interactive_parser
-        terminals = parser.accepts() if parser else error.allowed
-        expected = expected_message(terminals or set())
-        message = f"недопустимый символ {source[index]!r}" + expected
+        terminals = parser.accepts() if parser else (error.allowed or set())
+        char = source[index]
+        if char in "+-" and "SYMBOL_OP" in terminals:
+            message = f"отделите оператор {char!r} от операнда пробелом"
+        else:
+            expected = expected_message(terminals)
+            message = f"недопустимый символ {char!r}" + expected
     return located_error(message, error.line, error.column)

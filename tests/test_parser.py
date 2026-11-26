@@ -44,3 +44,11 @@ class ParserTests(unittest.TestCase):
         for source in ("!(+ 1e0+2e0)", "!(+ 1e0a)", "deffoo := 1e0; {}"):
             with self.subTest(source=source), self.assertRaises(ConfigError):
                 parse(source)
+
+    def test_missing_separator_after_operator(self):
+        """Предложить пробел, если оператор примыкает к имени операнда."""
+        diagnostic = "от операнда пробелом"
+        for operator in ("+", "-"):
+            with self.subTest(operator=operator):
+                with self.assertRaisesRegex(ConfigError, diagnostic):
+                    parse(f"!({operator}base 1)")
