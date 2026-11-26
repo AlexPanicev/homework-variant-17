@@ -56,6 +56,18 @@ class ValueTests(unittest.TestCase):
         self.assertIn("'y':", output)
         self.assertIn("'N':", output)
 
+    def test_quote_mixed_case_yaml_literals(self):
+        """Сохранить имена при регистронезависимом чтении YAML-литералов."""
+        names = (
+            "NuLl", "nUlL", "YeS", "yEs", "nO", "TrUe", "FaLsE", "oN", "OfF"
+        )
+        source = "{" + ", ".join(f"{key}=>1e0" for key in names) + "}"
+        output = translate(source)
+        self.assertEqual(list(yaml.safe_load(output)), list(names))
+        for key in names:
+            with self.subTest(key=key):
+                self.assertIn(f"'{key}':", output)
+
     def test_comments_inside_all_tokens_of_document(self):
         """Разрешить комментарии между лексемами и после корня без LF."""
         source = """%{ || } >> %} def || объявление
@@ -109,3 +121,13 @@ seed := %{ ignored
         large = yaml.safe_load(translate("1e4096"))
         self.assertEqual(Decimal(small), Decimal("1e-4096"))
         self.assertEqual(large, 10 ** 4096)
+
+    def test_zero_with_exponent_outside_decimal_range(self):
+        """Свести нулевую мантиссу к нулю при любой длине экспоненты."""
+        power = "9" * 30
+        cases = (f"0e{power}", f"-000.E-{power}", f"+٠.０e+{power}")
+        for source in cases:
+            with self.subTest(source=source):
+                self.assertEqual(yaml.safe_load(translate(source)), 0)
+        with self.assertRaisesRegex(ConfigError, "диапазон"):
+            translate(f"0.01e{power}")

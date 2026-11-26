@@ -47,6 +47,9 @@ def read_number(token: Token) -> Decimal:
     try:
         return normalize(Decimal(token))
     except DecimalException:
+        mantissa, _, _ = token.lower().partition("e")
+        if not any(char.isdecimal() and int(char) for char in mantissa):
+            return Decimal(0)
         raise located_error(RANGE_ERROR, token.line, token.column) from None
 
 

@@ -12,6 +12,7 @@ from .evaluator import Data
 MAX_OUTPUT_MIB = 4
 MAX_OUTPUT_CHARS = MAX_OUTPUT_MIB * 1024 * 1024
 TAG_PREFIX = "tag:yaml.org,2002:"
+AMBIGUOUS_KEYS = {"y", "n", "yes", "no", "true", "false", "on", "off", "null"}
 
 
 def ensure_output_size(characters: int) -> None:
@@ -58,8 +59,8 @@ def represent_number(dumper: ConfigDumper, value: Decimal):
 
 
 def represent_key(dumper: ConfigDumper, key: str):
-    """Сохранить строки y и n в YAML 1.1, а также ключи вроде true и on."""
-    style = "'" if key.lower() in {"y", "n"} else None
+    """Защитить строковые ключи от преобразования в логические и null."""
+    style = "'" if key.lower() in AMBIGUOUS_KEYS else None
     return dumper.represent_scalar(TAG_PREFIX + "str", key, style=style)
 
 
