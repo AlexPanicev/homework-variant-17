@@ -2,10 +2,12 @@
 
 import unittest
 from decimal import Decimal
+from unittest.mock import patch
 
 import yaml
 
 from src.errors import ConfigError
+from src.limits import MAX_OUTPUT_CHARS
 from src.translator import translate
 
 
@@ -164,3 +166,20 @@ seed := %{ ignored
                 suffix = power if power.startswith("-") else "+" + power
                 self.assertEqual(node.value, "1.25e" + suffix)
                 self.assertEqual(node.tag, "tag:yaml.org,2002:float")
+
+    def test_integer_at_output_boundary_uses_scientific_notation(self):
+        """Сохранить число, когда служебные знаки исчерпывают объём YAML."""
+        power = MAX_OUTPUT_CHARS - 1
+        node = yaml.compose(translate(f"1e{power}"))
+        self.assertEqual(node.value, f"1.0e+{power}")
+        self.assertEqual(node.tag, "tag:yaml.org,2002:float")
+
+    def test_long_integers_in_collections_use_compact_numbers_if_needed(self):
+        """Проверить краткую запись чисел при нехватке места в коллекции."""
+        with patch("src.yaml_output.MAX_OUTPUT_CHARS", 64):
+            output = translate("{first => 1e30, second => 1e30}")
+        node = yaml.compose(output)
+        self.assertEqual(
+            [(key.value, value.value) for key, value in node.value],
+            [("first", "1.0e+30"), ("second", "1.0e+30")],
+        )

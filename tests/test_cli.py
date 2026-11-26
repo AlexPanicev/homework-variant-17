@@ -85,7 +85,9 @@ class CliTests(unittest.TestCase):
     def test_output_limit(self):
         """Остановить большой вывод до передачи каких-либо байтов в stdout."""
         values = b",".join([b"!(big)"] * 1100)
-        result = run_cli(b"def big := 1e4096; <<" + values + b">>")
+        literal = b"7" * 4097 + b"e0"
+        source = b"def big := " + literal + b"; <<" + values + b">>"
+        result = run_cli(source)
         self.assertEqual(result.returncode, INPUT_ERROR)
         self.assertEqual(result.stdout, b"")
         self.assertIn("результат YAML превышает", result.stderr.decode())
