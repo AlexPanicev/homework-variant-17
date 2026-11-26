@@ -173,6 +173,13 @@ seed := %{ ignored
         self.assertEqual(node.value, digits)
         self.assertEqual(node.tag, "tag:yaml.org,2002:int")
 
+    def test_large_integer_with_padding_keeps_integer_tag(self):
+        """Сохранить точное целое для загрузчиков с большими int."""
+        power = 4300
+        node = yaml.compose(translate(f"1e{power}"))
+        self.assertEqual(node.tag, "tag:yaml.org,2002:int")
+        self.assertEqual(node.value, "1" + "0" * power)
+
     def test_long_integers_with_zero_padding_have_compact_numbers(self):
         """Записать далёкие экспоненты без разворачивания нулей."""
         output = translate("{first => 1e5000000, second => -2e7000000}")

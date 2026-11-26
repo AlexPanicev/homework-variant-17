@@ -14,6 +14,7 @@ TAG_PREFIX = "tag:yaml.org,2002:"
 AMBIGUOUS_KEYS = {"y", "n", "yes", "no", "true", "false", "on", "off", "null"}
 INDENT = 2
 READABLE_WIDTH = 80
+DECIMAL_PADDING_WIDTH = 4_194_304
 type Pending = list[Data | str | yaml.Event]
 
 
@@ -26,19 +27,13 @@ def scientific_text(value: Number, digits: str) -> str:
 
 
 def number_event(value: Number) -> yaml.ScalarEvent:
-    """Выбрать точную десятичную или короткую экспоненциальную запись."""
+    """Сохранить тег целого, сокращая только очень длинные цепочки нулей."""
     digits = format(value.coefficient, "f")
-    fraction = value.power < 0
-    reader_digits = sys.int_info.default_max_str_digits
-    long_padding = value.power > 0 and value.leading_power() >= reader_digits
-    if fraction or long_padding:
-        scientific = scientific_text(value, digits)
-        if fraction or len(scientific) < len(digits) + value.power:
-            return yaml.ScalarEvent(
-                None, TAG_PREFIX + "float", (True, False), scientific
-            )
-    text = digits + "0" * value.power
-    return yaml.ScalarEvent(None, TAG_PREFIX + "int", (True, False), text)
+    if 0 <= value.power <= DECIMAL_PADDING_WIDTH:
+        text = digits + "0" * value.power
+        return yaml.ScalarEvent(None, TAG_PREFIX + "int", (True, False), text)
+    text = scientific_text(value, digits)
+    return yaml.ScalarEvent(None, TAG_PREFIX + "float", (True, False), text)
 
 
 def key_event(key: str) -> yaml.ScalarEvent:
