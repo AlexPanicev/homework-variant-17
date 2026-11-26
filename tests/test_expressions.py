@@ -6,7 +6,7 @@ from decimal import Decimal, localcontext
 import yaml
 
 from src.errors import ConfigError
-from src.evaluator import MAX_CONTAINER_DEPTH
+from src.limits import MAX_OUTPUT_CHARS
 from src.translator import translate
 
 
@@ -128,25 +128,46 @@ class ExpressionTests(unittest.TestCase):
         """Удержать все разряды при вычитании на краях диапазона."""
         with localcontext() as outer_context:
             outer_context.prec = 2
-            output = translate("!(- 1e4096 1e-4096)")
+            output = translate("!(- 1e4097 1e-4097)")
         number = Decimal(output.splitlines()[0])
-        self.assertEqual(number.as_tuple().digits, (9,) * 8192)
-        self.assertEqual(number.as_tuple().exponent, -4096)
+        self.assertEqual(number.as_tuple().digits, (9,) * 8194)
+        self.assertEqual(number.as_tuple().exponent, -4097)
 
-    def test_numeric_range_errors(self):
-        """Выдать ошибку для неразрешимых разрядов и переполнения результата."""
-        cases = ("1e4097", "1e-4097", "1e" + "9" * 30, "!(+ 9e4096 9e4096)")
-        for source in cases:
-            with self.subTest(source=source):
-                with self.assertRaisesRegex(ConfigError, "диапазон"):
-                    translate(source)
+    def test_addition_beyond_previous_power_boundary(self):
+        """Сохранить лишний старший разряд при сложении."""
+        output = translate("!(+ 9e4096 9e4096)")
+        self.assertEqual(yaml.safe_load(output), 18 * 10 ** 4096)
 
-    def test_depth_includes_constant_expansion(self):
-        """Считать глубину коллекции после подстановки константы."""
-        depth = MAX_CONTAINER_DEPTH
+    def test_very_large_powers_cancel_exactly(self):
+        """Вычислить ноль для равных чисел за диапазоном Decimal."""
+        power = "2" * 40
+        output = translate(f"!(- 1.5e{power} 1.5e{power})")
+        self.assertEqual(output.splitlines()[0], "0")
+        self.assertEqual(translate("!(- 0 0)").splitlines()[0], "0")
+        self.assertEqual(yaml.safe_load(output), 0)
+
+    def test_modulo_with_very_large_power(self):
+        """Вычислить остаток без разворачивания огромного делимого."""
+        output = translate("<<!(mod -1e100000000 3), !(mod 1e100000000 -3)>>")
+        self.assertEqual(yaml.safe_load(output), [2, -2])
+
+    def test_dense_arithmetic_beyond_output_capacity(self):
+        """Сообщить о нехватке места для точной записи всех цифр."""
+        power = MAX_OUTPUT_CHARS + 1
+        with self.assertRaisesRegex(ConfigError, "превышает объём YAML"):
+            translate(f"!(+ 1e-{power} 1)")
+
+    def test_deep_collection_constant_keeps_aliases(self):
+        """Подставить глубокую коллекцию в два поля как общее значение."""
+        depth = 65
         nested = "<<" * depth + "0e0" + ">>" * depth
-        with self.assertRaisesRegex(ConfigError, "глубина коллекций"):
-            translate(f"def deep := {nested}; {{key => !(deep)}}")
+        source = f"def deep := {nested}; {{left => !(deep), right => !(deep)}}"
+        result = yaml.safe_load(translate(source))
+        self.assertIs(result["left"], result["right"])
+        value = result["left"]
+        for _ in range(depth):
+            value, = value
+        self.assertEqual(value, 0)
 
     def test_deep_arithmetic_uses_no_python_recursion(self):
         """Вычислить цепочку вложенных выражений глубже лимита Python."""
