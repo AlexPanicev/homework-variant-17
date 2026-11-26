@@ -2,12 +2,10 @@
 
 import unittest
 from decimal import Decimal
-from unittest.mock import patch
 
 import yaml
 
 from src.errors import ConfigError
-from src.limits import MAX_OUTPUT_CHARS
 from src.translator import translate
 
 
@@ -129,7 +127,7 @@ seed := %{ ignored
                   if isinstance(event, yaml.ScalarEvent)]
         self.assertEqual(leaves, ["leaf", "1"])
 
-    def test_deep_mappings_use_compact_yaml_if_indentation_exceeds_size(self):
+    def test_deep_mappings_use_compact_yaml_with_large_indentation(self):
         """Записать 3000 уровней словаря без квадратичного числа отступов."""
         depth = 3000
         source = "{key => " * depth + "1e0" + "}" * depth
@@ -138,7 +136,8 @@ seed := %{ ignored
         mappings = [event for event in events
                     if isinstance(event, yaml.MappingStartEvent)]
         self.assertEqual(len(mappings), depth)
-        self.assertTrue(all(event.flow_style for event in mappings))
+        self.assertFalse(mappings[0].flow_style)
+        self.assertTrue(mappings[-1].flow_style)
         scalar_values = [event.value for event in events
                          if isinstance(event, yaml.ScalarEvent)]
         self.assertEqual(scalar_values, ["key"] * depth + ["1"])
@@ -167,19 +166,18 @@ seed := %{ ignored
                 self.assertEqual(node.value, "1.25e" + suffix)
                 self.assertEqual(node.tag, "tag:yaml.org,2002:float")
 
-    def test_integer_at_output_boundary_uses_scientific_notation(self):
-        """Сохранить число, когда служебные знаки исчерпывают объём YAML."""
-        power = MAX_OUTPUT_CHARS - 1
-        node = yaml.compose(translate(f"1e{power}"))
-        self.assertEqual(node.value, f"1.0e+{power}")
-        self.assertEqual(node.tag, "tag:yaml.org,2002:float")
+    def test_dense_large_integer_keeps_integer_tag(self):
+        """Сохранить все цифры мантиссы и целочисленный тег YAML."""
+        digits = "7" * 5000
+        node = yaml.compose(translate(digits + "e0"))
+        self.assertEqual(node.value, digits)
+        self.assertEqual(node.tag, "tag:yaml.org,2002:int")
 
-    def test_long_integers_in_collections_use_compact_numbers_if_needed(self):
-        """Проверить краткую запись чисел при нехватке места в коллекции."""
-        with patch("src.yaml_output.MAX_OUTPUT_CHARS", 64):
-            output = translate("{first => 1e30, second => 1e30}")
+    def test_long_integers_with_zero_padding_have_compact_numbers(self):
+        """Записать далёкие экспоненты без разворачивания нулей."""
+        output = translate("{first => 1e5000000, second => -2e7000000}")
         node = yaml.compose(output)
         self.assertEqual(
             [(key.value, value.value) for key, value in node.value],
-            [("first", "1.0e+30"), ("second", "1.0e+30")],
+            [("first", "1.0e+5000000"), ("second", "-2.0e+7000000")],
         )

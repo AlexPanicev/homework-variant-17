@@ -6,7 +6,6 @@ from decimal import Decimal, localcontext
 import yaml
 
 from src.errors import ConfigError
-from src.limits import MAX_OUTPUT_CHARS
 from src.translator import translate
 
 
@@ -151,11 +150,16 @@ class ExpressionTests(unittest.TestCase):
         output = translate("<<!(mod -1e100000000 3), !(mod 1e100000000 -3)>>")
         self.assertEqual(yaml.safe_load(output), [2, -2])
 
-    def test_dense_arithmetic_beyond_output_capacity(self):
-        """Сообщить о нехватке места для точной записи всех цифр."""
-        power = MAX_OUTPUT_CHARS + 1
-        with self.assertRaisesRegex(ConfigError, "превышает объём YAML"):
-            translate(f"!(+ 1e-{power} 1)")
+    def test_wide_intermediate_result_cancels_exactly(self):
+        """Сохранить единицу после операции с 5 000 001 разрядом."""
+        output = translate("!(- !(+ 1e5000000 1) 1e5000000)")
+        self.assertEqual(yaml.safe_load(output), 1)
+
+    def test_precision_outside_decimal_capabilities_is_reported(self):
+        """Сообщить о невозможной для Decimal длине коэффициента."""
+        power = "9" * 30
+        with self.assertRaisesRegex(ConfigError, "возможности Decimal"):
+            translate(f"!(+ 1e{power} 1)")
 
     def test_deep_collection_constant_keeps_aliases(self):
         """Подставить глубокую коллекцию в два поля как общее значение."""

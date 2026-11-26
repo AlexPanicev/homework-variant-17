@@ -8,7 +8,7 @@ from pathlib import Path
 
 import yaml
 
-from src.main import INPUT_ERROR, IO_ERROR, MAX_INPUT_BYTES
+from src.main import INPUT_ERROR, IO_ERROR
 
 
 RUNNER = Path(__file__).resolve().parents[1] / "run.sh"
@@ -70,27 +70,27 @@ class CliTests(unittest.TestCase):
         self.assertEqual(result.stdout, b"")
         self.assertIn("UTF-8, байт 4", result.stderr.decode())
 
-    def test_input_limit(self):
-        """Принять ввод на границе размера и отклонить следующий байт."""
-        prefix = b"{}||"
-        source = prefix + b"x" * (MAX_INPUT_BYTES - len(prefix))
+    def test_reads_past_previous_input_limit(self):
+        """Прочитать корень даже после двух МиБ комментария."""
+        comment = b"||" + b"x" * (2 * 1024 * 1024)
+        source = comment + b"\n{answer => 1e0}"
         result = run_cli(source)
         self.assertEqual(result.returncode, 0)
-        self.assertEqual(yaml.safe_load(result.stdout), {})
-        result = run_cli(source + b"x")
-        self.assertEqual(result.returncode, INPUT_ERROR)
-        self.assertEqual(result.stdout, b"")
-        self.assertIn("вход превышает", result.stderr.decode())
+        self.assertEqual(result.stderr, b"")
+        self.assertEqual(result.stdout, b"answer: 1\n")
 
-    def test_output_limit(self):
-        """Остановить большой вывод до передачи каких-либо байтов в stdout."""
-        values = b",".join([b"!(big)"] * 1100)
-        literal = b"7" * 4097 + b"e0"
-        source = b"def big := " + literal + b"; <<" + values + b">>"
+    def test_writes_past_previous_output_limit(self):
+        """Записать весь YAML, занимающий больше четырёх МиБ."""
+        count = 1100
+        digits = b"7" * 4097
+        values = b",".join([b"!(big)"] * count)
+        source = b"def big := " + digits + b"e0; <<" + values + b">>"
         result = run_cli(source)
-        self.assertEqual(result.returncode, INPUT_ERROR)
-        self.assertEqual(result.stdout, b"")
-        self.assertIn("результат YAML превышает", result.stderr.decode())
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stderr, b"")
+        line = b"- " + digits + b"\n"
+        self.assertEqual(len(result.stdout), len(line) * count)
+        self.assertEqual(result.stdout.count(line), count)
 
     def test_help_and_unknown_option(self):
         """Показать помощь и отклонить неподдерживаемый параметр."""

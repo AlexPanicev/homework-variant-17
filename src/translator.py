@@ -14,7 +14,7 @@ def translate(source: str) -> str:
     try:
         value = Evaluator().transform(tree)
     except VisitError as error:
-        if isinstance(error.orig_exc, ConfigError):
+        if isinstance(error.orig_exc, (ConfigError, MemoryError)):
             raise error.orig_exc from None
         raise
     return dump_config(value)

@@ -2,14 +2,13 @@
 
 from dataclasses import dataclass
 from decimal import (
-    MAX_EMAX, MIN_EMIN, Context, Decimal, DivisionByZero, Inexact,
-    InvalidOperation, Overflow,
+    MAX_EMAX, MIN_EMIN, Context, Decimal, DecimalException, DivisionByZero,
+    Inexact, InvalidOperation, Overflow,
 )
 
 from lark import Token
 
 from .errors import located_error
-from .limits import MAX_OUTPUT_CHARS
 
 
 @dataclass(frozen=True)
@@ -59,11 +58,8 @@ def read_number(token: Token) -> Number:
 def align(left: Number, right: Number) -> tuple[Context, Decimal, Decimal, int]:
     """Выровнять коэффициенты для точной операции Decimal."""
     power = min(left.power, right.power)
-    shift = max(left.power, right.power) - power
-    if shift > MAX_OUTPUT_CHARS:
-        raise Inexact
     high = max(left.leading_power(), right.leading_power())
-    precision = min(high - power + 2, MAX_OUTPUT_CHARS + 1)
+    precision = high - power + 2
     context = Context(
         prec=precision, Emin=MIN_EMIN, Emax=MAX_EMAX,
         traps=[Inexact, InvalidOperation, Overflow, DivisionByZero],
@@ -134,6 +130,6 @@ def calculate(token: Token, left: object, right: object) -> Number:
                             token.line, token.column)
     try:
         return operation(left, right)
-    except Inexact:
-        message = "точный промежуточный результат превышает объём YAML"
+    except (DecimalException, OverflowError, ValueError):
+        message = "точное вычисление выходит за возможности Decimal"
         raise located_error(message, token.line, token.column) from None

@@ -1,35 +1,20 @@
 """Запись YAML через события PyYAML и явный стек коллекций."""
 
+import sys
 from decimal import Decimal
-from io import StringIO
 from typing import Iterator
 
 import yaml
 
-from .errors import ConfigError
 from .evaluator import Data
-from .limits import MAX_OUTPUT_CHARS, MAX_OUTPUT_MIB
 from .numbers import Number
 
 
 TAG_PREFIX = "tag:yaml.org,2002:"
 AMBIGUOUS_KEYS = {"y", "n", "yes", "no", "true", "false", "on", "off", "null"}
+INDENT = 2
+READABLE_WIDTH = 80
 type Pending = list[Data | str | yaml.Event]
-
-
-class OutputLimitError(ConfigError):
-    """Размер текущей записи YAML превысил допустимый объём."""
-
-
-class OutputBuffer(StringIO):
-    """Собрать YAML целиком, контролируя размер результата."""
-
-    def write(self, text: str) -> int:
-        """Остановить эмиттер до превышения размера вывода."""
-        if self.tell() + len(text) > MAX_OUTPUT_CHARS:
-            message = f"результат YAML превышает {MAX_OUTPUT_MIB} МиБ"
-            raise OutputLimitError(message)
-        return super().write(text)
 
 
 def scientific_text(value: Number, digits: str) -> str:
@@ -40,17 +25,20 @@ def scientific_text(value: Number, digits: str) -> str:
     return f"{sign}{digits[0]}.{digits[1:] or '0'}e{exponent}"
 
 
-def number_event(value: Number, shorten: bool) -> yaml.ScalarEvent:
-    """Записать целое, когда его десятичная запись подходит по объёму."""
+def number_event(value: Number) -> yaml.ScalarEvent:
+    """Выбрать точную десятичную или короткую экспоненциальную запись."""
     digits = format(value.coefficient, "f")
-    length = len(digits) + value.power
-    fits = value.power >= 0 and length <= MAX_OUTPUT_CHARS
-    text = scientific_text(value, digits) if shorten or not fits else ""
-    tag = "float"
-    if fits and (not text or length <= len(text)):
-        text = digits + "0" * value.power
-        tag = "int"
-    return yaml.ScalarEvent(None, TAG_PREFIX + tag, (True, False), text)
+    fraction = value.power < 0
+    reader_digits = sys.int_info.default_max_str_digits
+    long_padding = value.power > 0 and value.leading_power() >= reader_digits
+    if fraction or long_padding:
+        scientific = scientific_text(value, digits)
+        if fraction or len(scientific) < len(digits) + value.power:
+            return yaml.ScalarEvent(
+                None, TAG_PREFIX + "float", (True, False), scientific
+            )
+    text = digits + "0" * value.power
+    return yaml.ScalarEvent(None, TAG_PREFIX + "int", (True, False), text)
 
 
 def key_event(key: str) -> yaml.ScalarEvent:
@@ -97,18 +85,19 @@ def open_collection(value: list[Data] | dict[str, Data],
                                   flow_style=compact)
 
 
-def node_events(root: Data, compact: bool,
-                shorten: bool) -> Iterator[yaml.Event]:
+def node_events(root: Data) -> Iterator[yaml.Event]:
     """Обойти значения и ссылки без вызовов в глубину Python."""
     anchors = collection_anchors(root)
     emitted = set()
     pending: Pending = [root]
+    depth = 0
     while pending:
         value = pending.pop()
         if isinstance(value, yaml.Event):
+            depth -= 1
             yield value
         elif isinstance(value, Number):
-            yield number_event(value, shorten)
+            yield number_event(value)
         elif isinstance(value, str):
             yield key_event(value)
         else:
@@ -118,33 +107,21 @@ def node_events(root: Data, compact: bool,
                 continue
             if anchor is not None:
                 emitted.add(anchor)
+            compact = depth * INDENT >= READABLE_WIDTH
             yield open_collection(value, anchor, pending, compact)
+            depth += 1
 
 
-def document_events(root: Data, compact: bool,
-                    shorten: bool) -> Iterator[yaml.Event]:
+def document_events(root: Data) -> Iterator[yaml.Event]:
     """Окружить события корневого значения границами документа."""
     yield yaml.StreamStartEvent()
     yield yaml.DocumentStartEvent()
-    yield from node_events(root, compact, shorten)
+    yield from node_events(root)
     yield yaml.DocumentEndEvent()
     yield yaml.StreamEndEvent()
 
 
-def render(value: Data, compact: bool, shorten: bool) -> str:
-    """Записать YAML в выбранной форме до лимита объёма."""
-    width = MAX_OUTPUT_CHARS if compact else None
-    with OutputBuffer() as output:
-        events = document_events(value, compact, shorten)
-        yaml.emit(events, output, Dumper=yaml.SafeDumper, width=width)
-        return output.getvalue()
-
-
 def dump_config(value: Data) -> str:
-    """При нехватке места сокращать отступы и запись длинных чисел."""
-    for compact in (False, True):
-        try:
-            return render(value, compact=compact, shorten=False)
-        except OutputLimitError:
-            continue
-    return render(value, compact=True, shorten=True)
+    """Собрать полный YAML из событий, сохраняя отступы читабельными."""
+    return yaml.emit(document_events(value), Dumper=yaml.SafeDumper,
+                     indent=INDENT, width=sys.maxsize)

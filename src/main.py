@@ -8,19 +8,16 @@ from typing import TextIO
 from .errors import ConfigError
 
 
-MAX_INPUT_BYTES = 1024 * 1024
 INPUT_ERROR = 2
 IO_ERROR = 1
 INTERRUPTED = 130
 
 
 def read_source() -> str:
-    """Прочитать вход в UTF-8 с ограничением на размер."""
+    """Прочитать вход в UTF-8 до конца потока."""
     if sys.stdin is None:
         raise OSError("поток stdin недоступен")
-    data = sys.stdin.buffer.read(MAX_INPUT_BYTES + 1)
-    if len(data) > MAX_INPUT_BYTES:
-        raise ConfigError("вход превышает 1 МиБ")
+    data = sys.stdin.buffer.read()
     try:
         return data.decode("utf-8")
     except UnicodeDecodeError as error:
@@ -82,6 +79,8 @@ def main() -> int:
                             IO_ERROR)
     except OSError as error:
         return report_error(f"Ошибка ввода-вывода: {error}", IO_ERROR)
+    except MemoryError:
+        return report_error("Недостаточно памяти для трансляции.", IO_ERROR)
     except KeyboardInterrupt:
         return report_error("Прервано.", INTERRUPTED)
     return 0
