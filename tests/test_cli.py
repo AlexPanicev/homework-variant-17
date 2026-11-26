@@ -15,10 +15,11 @@ RUNNER = Path(__file__).resolve().parents[1] / "run.sh"
 TIMEOUT = 20
 
 
-def run_cli(source: bytes, *args: str) -> subprocess.CompletedProcess:
+def run_cli(source: bytes, *args: str,
+            prelude: tuple[str, ...] = ()) -> subprocess.CompletedProcess:
     """Запустить скрипт из другого каталога и перехватить оба потока."""
     return subprocess.run(
-        [str(RUNNER), *args],
+        [*prelude, str(RUNNER), *args],
         input=source,
         cwd=RUNNER.parent.parent,
         env={**os.environ, "PYTHON": sys.executable},
@@ -114,6 +115,55 @@ class CliTests(unittest.TestCase):
             diagnostic = process.stderr.read()
             self.assertNotIn(b"Traceback", diagnostic)
             self.assertNotIn(b"Exception ignored", diagnostic)
+
+    def test_closed_stderr(self):
+        """Вернуть код ошибки и сохранить stdout при закрытом stderr."""
+        prelude = ("sh", "-c", 'exec "$@" 2>&-', "sh")
+        for source, args in ((b"?", ()), (b"{}", ("--unknown",))):
+            with self.subTest(source=source, args=args):
+                result = run_cli(source, *args, prelude=prelude)
+                self.assertEqual(result.returncode, INPUT_ERROR)
+                self.assertEqual(result.stdout, b"")
+                self.assertEqual(result.stderr, b"")
+        result = run_cli(b"{}", prelude=prelude)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(yaml.safe_load(result.stdout), {})
+
+    def test_closed_stdin(self):
+        """Сообщить о закрытом stdin без трассировки."""
+        prelude = ("sh", "-c", 'exec "$@" <&-', "sh")
+        result = run_cli(b"", prelude=prelude)
+        self.assertEqual(result.returncode, IO_ERROR)
+        self.assertEqual(result.stdout, b"")
+        self.assertIn("поток stdin недоступен", result.stderr.decode())
+        self.assertNotIn(b"Traceback", result.stderr)
+
+    def test_closed_stdout(self):
+        """Считать сбой записи YAML или справки ошибкой ввода-вывода."""
+        prelude = ("sh", "-c", 'exec "$@" >&-', "sh")
+        for args in ((), ("--help",)):
+            with self.subTest(args=args):
+                result = run_cli(b"{}", *args, prelude=prelude)
+                self.assertEqual(result.returncode, IO_ERROR)
+                self.assertEqual(result.stdout, b"")
+                self.assertIn("выходной поток недоступен",
+                              result.stderr.decode())
+                self.assertNotIn(b"Traceback", result.stderr)
+
+    def test_broken_error_output(self):
+        """Сохранить код 2 при записи ошибки в канал без читателя."""
+        read_fd, write_fd = os.pipe()
+        os.close(read_fd)
+        try:
+            result = subprocess.run(
+                [str(RUNNER)], input=b"?", stdout=subprocess.PIPE,
+                stderr=write_fd, env={**os.environ, "PYTHON": sys.executable},
+                timeout=TIMEOUT, check=False,
+            )
+        finally:
+            os.close(write_fd)
+        self.assertEqual(result.returncode, INPUT_ERROR)
+        self.assertEqual(result.stdout, b"")
 
     def check_example(self, filename: str, expected: dict):
         """Сверить YAML предметного примера с ожидаемой структурой."""

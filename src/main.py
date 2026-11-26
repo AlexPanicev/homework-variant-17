@@ -3,6 +3,7 @@
 import argparse
 import sys
 from contextlib import suppress
+from typing import TextIO
 
 from .errors import ConfigError
 
@@ -15,6 +16,8 @@ INTERRUPTED = 130
 
 def read_source() -> str:
     """Прочитать вход в UTF-8 с ограничением на размер."""
+    if sys.stdin is None:
+        raise OSError("поток stdin недоступен")
     data = sys.stdin.buffer.read(MAX_INPUT_BYTES + 1)
     if len(data) > MAX_INPUT_BYTES:
         raise ConfigError("вход превышает 1 МиБ")
@@ -25,42 +28,62 @@ def read_source() -> str:
         raise ConfigError(f"ожидался текст UTF-8, байт {position}") from None
 
 
-def write_result(output: str) -> None:
-    """Записать результат и обработать недоступный выходной поток."""
+def write_text(stream: TextIO | None, text: str) -> None:
+    """Записать текст и закрыть поток при сбое записи или сброса буфера."""
+    if stream is None:
+        raise OSError("выходной поток недоступен")
     try:
-        sys.stdout.write(output)
-        sys.stdout.flush()
+        stream.write(text)
+        stream.flush()
     except OSError:
         with suppress(OSError):
-            sys.stdout.close()
+            stream.close()
         raise
+
+
+def report_error(message: str, status: int) -> int:
+    """Передать диагностику в stderr и сохранить код даже при сбое записи."""
+    with suppress(OSError):
+        write_text(sys.stderr, message + "\n")
+    return status
+
+
+class CliArguments(argparse.ArgumentParser):
+    """Справка и ошибки вызова со строго раздельными потоками."""
+
+    def print_help(self, file: TextIO | None = None) -> None:
+        """Записать справку в stdout или в переданный поток."""
+        stream = sys.stdout if file is None else file
+        write_text(stream, self.format_help())
+
+    def error(self, message: str) -> None:
+        """Направить ошибку вызова в stderr и завершиться с кодом 2."""
+        text = f"{self.format_usage()}{self.prog}: error: {message}"
+        self.exit(report_error(text, INPUT_ERROR))
 
 
 def main() -> int:
     """Разобрать параметры и вернуть код завершения для оболочки."""
-    parser = argparse.ArgumentParser(
+    parser = CliArguments(
         prog="run.sh",
         description="Преобразует конфигурацию варианта 17 из stdin в YAML.",
     )
-    parser.parse_args()
     try:
+        parser.parse_args()
         from .translator import translate
 
-        write_result(translate(read_source()))
+        write_text(sys.stdout, translate(read_source()))
     except ConfigError as error:
-        print(f"Ошибка: {error}", file=sys.stderr)
-        return INPUT_ERROR
+        return report_error(f"Ошибка: {error}", INPUT_ERROR)
     except ModuleNotFoundError as error:
         if error.name not in {"lark", "yaml"}:
             raise
-        print("Установите зависимости из requirements.txt.", file=sys.stderr)
-        return IO_ERROR
+        return report_error("Установите зависимости из requirements.txt.",
+                            IO_ERROR)
     except OSError as error:
-        print(f"Ошибка ввода-вывода: {error}", file=sys.stderr)
-        return IO_ERROR
+        return report_error(f"Ошибка ввода-вывода: {error}", IO_ERROR)
     except KeyboardInterrupt:
-        print("Прервано.", file=sys.stderr)
-        return INTERRUPTED
+        return report_error("Прервано.", INTERRUPTED)
     return 0
 
 
