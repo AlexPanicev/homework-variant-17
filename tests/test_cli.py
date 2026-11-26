@@ -104,7 +104,8 @@ class CliTests(unittest.TestCase):
         """Обработать закрытый выходной канал без трассировки."""
         with subprocess.Popen(
             [str(RUNNER)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE, env={**os.environ, "PYTHON": sys.executable},
+            stderr=subprocess.PIPE,
+            env={**os.environ, "PYTHON": sys.executable},
         ) as process:
             process.stdout.close()
             process.stdin.write(b"{}")
@@ -113,3 +114,33 @@ class CliTests(unittest.TestCase):
             diagnostic = process.stderr.read()
             self.assertNotIn(b"Traceback", diagnostic)
             self.assertNotIn(b"Exception ignored", diagnostic)
+
+    def check_example(self, filename: str, expected: dict):
+        """Сверить YAML предметного примера с ожидаемой структурой."""
+        path = RUNNER.with_name("examples") / filename
+        result = run_cli(path.read_bytes())
+        self.assertEqual(result.returncode, 0, result.stderr.decode())
+        self.assertEqual(result.stderr, b"")
+        self.assertEqual(yaml.safe_load(result.stdout), expected)
+
+    def test_telemetry_example(self):
+        """Проверить интервалы опроса и каналы датчиков."""
+        self.check_example("telemetry.cfg", {
+            "polling": {"period_seconds": 2.5, "delayed_seconds": 3.5},
+            "channels": [0, 1, 7],
+        })
+
+    def test_museum_example(self):
+        """Проверить вместимость группы и расписание экскурсий."""
+        self.check_example("museum.cfg", {
+            "group": {"capacity": 24, "reserve": 20},
+            "session_hours": [10, 14, 16],
+            "cancelled": [],
+        })
+
+    def test_warehouse_example(self):
+        """Проверить остаток после упаковки и добавленный резерв."""
+        self.check_example("warehouse.cfg", {
+            "batch": {"units": 53, "box_size": 10, "loose_units": 3},
+            "buffer": 5,
+        })
