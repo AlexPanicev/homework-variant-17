@@ -1,0 +1,42 @@
+document: definition* value
+definition: _DEF NAME _ASSIGN value _SEMICOLON
+
+?value: NUMBER -> number
+      | array
+      | mapping
+      | expression
+
+array: _ARRAY_OPEN [value (_COMMA value)* _COMMA?] _ARRAY_CLOSE
+mapping: _MAP_OPEN [pair (_COMMA pair)* _COMMA?] _MAP_CLOSE
+pair: NAME _ARROW value
+
+expression: _EXPR_OPEN prefix _PAREN_CLOSE
+?prefix: SYMBOL_OP operand operand -> arithmetic
+       | NAME operand operand -> arithmetic
+       | operand
+?operand: NUMBER -> number
+        | INTEGER -> number
+        | NAME -> reference
+        | expression
+        | _PAREN_OPEN prefix _PAREN_CLOSE
+
+_DEF.2: /def(?![\w.])/
+_ASSIGN: ":="
+_SEMICOLON: ";"
+_ARRAY_OPEN: "<<"
+_ARRAY_CLOSE: ">>"
+_MAP_OPEN: "{"
+_MAP_CLOSE: "}"
+_ARROW: "=>"
+_COMMA: ","
+_EXPR_OPEN: "!("
+_PAREN_OPEN: "("
+_PAREN_CLOSE: ")"
+SYMBOL_OP: /[+-](?=$|[\s()]|!\(|\|\||%\{)/
+NUMBER.1: /(?<![\w.])[+-]?\d+(?:\.\d*)?[eE][+-]?\d+(?![\w.])/
+INTEGER: /(?<![\w.])[+-]?\d+(?![\w.])/
+NAME: /(?<![\w.])[_a-zA-Z]+(?![\w.])/
+
+%ignore /[ \t\f\n]+/
+%ignore /\|\|[^\n]*/
+%ignore /%\{[\s\S]*?%\}/
