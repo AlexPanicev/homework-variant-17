@@ -34,8 +34,10 @@ class ParserTests(unittest.TestCase):
 
     def test_trailing_text_is_invalid(self):
         """Потребовать завершения документа после корневого значения."""
-        with self.assertRaisesRegex(ConfigError, "конец ввода"):
-            parse("<<>> {}")
+        for source in ("<<>> {}", "{}?"):
+            with self.subTest(source=source):
+                with self.assertRaisesRegex(ConfigError, "конец ввода"):
+                    parse(source)
 
     def test_adjacent_operands_need_boundaries(self):
         """Отклонить слитные числа, имена и ключевое слово."""

@@ -79,7 +79,9 @@ class ExpressionTests(unittest.TestCase):
 
     def test_unknown_forward_and_self_references(self):
         """Доступны только объявления, обработанные ранее."""
-        cases = ("!(+ a 1)", "def a := !(b); def b := 1e0; {}", "def a := !(a); {}")
+        cases = (
+            "!(+ a 1)", "def a := !(b); def b := 1e0; {}", "def a := !(a); {}"
+        )
         for text in cases:
             with self.subTest(text=text):
                 with self.assertRaisesRegex(ConfigError, "ещё не объявлена"):

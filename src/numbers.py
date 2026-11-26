@@ -22,7 +22,7 @@ RANGE_ERROR = f"число выходит за диапазон десятичн
 
 
 def modulo(left: Decimal, right: Decimal) -> Decimal:
-    """Вычислить остаток со знаком делителя, как при округлении частного вниз."""
+    """Вернуть остаток со знаком делителя при округлении частного вниз."""
     remainder = left % right
     if remainder and remainder.is_signed() != right.is_signed():
         return remainder + right

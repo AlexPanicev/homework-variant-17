@@ -82,6 +82,8 @@ def character_error(source: str, error: UnexpectedCharacters) -> ConfigError:
     if source.startswith("%{", index):
         message = "многострочный комментарий должен заканчиваться на %}"
     else:
-        expected = expected_message(error.allowed or set())
+        parser = error.interactive_parser
+        terminals = parser.accepts() if parser else error.allowed
+        expected = expected_message(terminals or set())
         message = f"недопустимый символ {source[index]!r}" + expected
     return located_error(message, error.line, error.column)
